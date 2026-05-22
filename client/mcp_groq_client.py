@@ -37,7 +37,7 @@ class RobotMCPClient:
     def __init__(
         self,
         groq_api_key: str,
-        model: str = "moonshotai/kimi-k2-instruct-0905",
+        model: str = "moonshotai/kimi-k2-instruct-0905", #allam-2-7b
         server_script_path: str = os.path.abspath(os.path.join("server", "mcp_robot_server.py")),
         robot_id: str = "niryo",
         use_simulation: bool = False,
