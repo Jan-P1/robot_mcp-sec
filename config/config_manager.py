@@ -41,7 +41,7 @@ class ServerConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     host: str = Field("127.0.0.1", description="Server host address")
-    port: int = Field(8000, ge=1024, le=65535, description="Server port")
+    port: int = Field(8765, ge=1024, le=65535, description="Server port")
     max_workers: int = Field(4, ge=1, description="Maximum worker threads")
     log_level: str = Field("INFO", description="Logging level")
     log_dir: str = Field("log", description="Log directory path")
