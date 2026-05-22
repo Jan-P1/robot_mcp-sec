@@ -190,7 +190,16 @@ class RobotMCPGUI:
             return
         
         # TODO: Add safety checks on user message here
-
+        # Step 1: implement RoboGuard (as per https://arxiv.org/abs/2503.07885)
+        summary_message = '''Create a summary of the user message'''
+        
+        summary_response = await self.mcp_client.chat(message + "\n\n" + summary_message)
+        
+        print(f"Security summary: {summary_response}")
+        
+        
+        
+        
         # Add user message and initial assistant message
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": ""})
