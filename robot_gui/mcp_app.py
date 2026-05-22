@@ -188,6 +188,8 @@ class RobotMCPGUI:
             history.append({"role": "assistant", "content": "⚠️ MCP server not connected. Please connect first."})
             yield history
             return
+        
+        # TODO: Add safety checks on user message here
 
         # Add user message and initial assistant message
         history.append({"role": "user", "content": message})
