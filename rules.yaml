@@ -1,0 +1,9 @@
+# Safety Rules - RoboGuard
+# enabled: boolean - Whether the safety rules are enabled or not.
+# rules: list - A list of safety rules to be applied. Each rule should have the
+# Might add profiles (i.e. low, medium, high) for easier config
+
+rules:
+  - name: "Bewegung außerhalb des Arbeitsbereichs"
+    description: "Verhindere jeden Befehl, der den Arm aus dem Arbeitsbereich hinaus bewegen will."
+    enabled: true
