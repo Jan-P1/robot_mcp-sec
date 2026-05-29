@@ -17,6 +17,7 @@ import sys
 import warnings
 from pathlib import Path
 from typing import Optional
+import yaml
 
 # Suppress annoying NumPy deprecation warnings from Gradio
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*np.bool8.*")
@@ -56,6 +57,12 @@ except ImportError:
     print("⚠️ FastMCP client not available")
     HAS_MCP_CLIENT = False
 
+
+class RuleViolationError(Exception):
+    pass
+
+class SafetyViolationError(Exception):
+    pass
 
 class RobotMCPGUI:
     """Enhanced GUI with Redis visualization and multi-LLM support."""
@@ -179,6 +186,46 @@ class RobotMCPGUI:
         Yields:
             Updated chat history
         """
+        # -------------------------------------Safety Step-------------------------------------------------
+        # TODO: Implement RoboGuard (as per https://arxiv.org/abs/2503.07885)
+        
+        # Step 1: Summarization so fresh history won't be infected with prompt injections or similar       
+        summary_message = '''A user has issued the following command to our robot arm:
+        ---
+        {message}
+        ---
+        Create a summary of the intended actions for the robot (movements, object interactions, velocities)
+        in neutral, concrete terms. Do not interpret intent, only describe physical actions.'''
+        
+        summary_response = await self.mcp_client.chat(summary_message)
+        
+        # Only for testing
+        print(f"{summary_response}")
+        
+        # Step 2: Load the rules file
+        with open("rules.yaml", "r") as f:
+            config = yaml.safe_load(f)
+        
+        active_rules = [r for r in config["rules"] if r["enabled"]]
+        
+        # Step 3: Check the summary against the active rules
+        for rule in active_rules:
+            check_message = f'''Check if the following summary of intended robot actions violates the rule: "{rule["name"]} - {rule["description"]}"
+            ---
+            {summary_response}
+            ---
+            If it violates the rule, respond with "VIOLATION: {rule['name']}" and a brief explanation. If it does not violate the rule, respond with "NO VIOLATION".'''
+            
+            check_response = await self.mcp_client.chat(check_message)
+            
+            print(f"Rule check for '{rule['name']}': {check_response}")
+            
+            if "VIOLATION" in check_response.upper() and not "NO VIOLATION" in check_response.upper():
+                violation_msg = f"⚠️ Command violates safety rule: {rule['name']}. Explanation: {check_response.split(':', 1)[1].strip()}"
+                raise RuleViolationError(violation_msg)
+        
+        # ----------------------------------Safety Step finished--------------------------------------------
+        
         if not message or not message.strip():
             yield history
             return
@@ -188,17 +235,7 @@ class RobotMCPGUI:
             history.append({"role": "assistant", "content": "⚠️ MCP server not connected. Please connect first."})
             yield history
             return
-        
-        # TODO: Add safety checks on user message here
-        # Step 1: implement RoboGuard (as per https://arxiv.org/abs/2503.07885)
-        summary_message = '''Create a summary of the user message'''
-        
-        summary_response = await self.mcp_client.chat(message + "\n\n" + summary_message)
-        
-        print(f"Security summary: {summary_response}")
-        
-        
-        
+               
         
         # Add user message and initial assistant message
         history.append({"role": "user", "content": message})
@@ -388,8 +425,11 @@ def create_gradio_interface(gui: RobotMCPGUI):
 
         async def handle_submit(message, history):
             """Handle chat message submission."""
-            async for updated_history in gui.process_chat(message, history):
-                yield "", updated_history
+            try:
+                async for updated_history in gui.process_chat(message, history):
+                    yield "", updated_history
+            except (SafetyViolationError, RuleViolationError) as e:
+                yield "", [{"role": "assistant", "content": str(f"Your instructions raised a {type(e).__name__}: {e}")}]    
 
         def handle_voice():
             """Handle voice recording button click."""
