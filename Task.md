@@ -11,6 +11,21 @@ In dieser Arbeit soll ein SafeGuard-Modul entwickelt werden, das vor das LLM ges
 
 Wissenschaftliche Fragestellungen
 Welche Klassen von Sicherheitsrisiken entstehen bei sprachgesteuerten Robotersystemen, und wie lassen sie sich systematisch kategorisieren?
+
+Physische Risiken: Verletzungen an Personen, Schäden an Umgebung, Schäden an System selbst
+Cyberphysische Risiken: Fernsteuerung/Hacking, Missbrauch der stimmbasierten Steuerung, Angriffe auf KIs (injection, adverserial, ...)
+Data-/Privacy: LLM kann sensible Daten herausgeben je nach Zugriff und Filterung der Antworten (Nutzerdaten, Forschugsdaten), Mikrofon und Kamera immer an (wenn in Betrieb) -> Logging, streams 
+
+---
+
 Wie zuverlässig können LLM-basierte Klassifikatoren gefährliche oder unzulässige Anweisungen erkennen – auch in verschleierter Form?
+Schwierig zu beantworten. LLMs sind im allgemeinen sehr anfällig für verschiedene Angriffe. Kodierung des Prompts (base64, Caesar-Schiffre, Leet-Speak), Jailbreaking, 
+---
+
 Wie ist ein policy-basiertes Regelwerk sinnvoll zu strukturieren, damit es von nicht-technischen Nutzern konfigurierbar ist?
+
+---
+
 Welche Angriffsmuster auf Prompt-Injection-Ebene sind im Kontext physischer Robotersysteme besonders kritisch?
+Jailbreaking und obfuscation, da Regeln ausgehebelt bzw. umgangen werden
+---
