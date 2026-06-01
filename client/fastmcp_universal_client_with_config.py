@@ -28,6 +28,9 @@ from fastmcp import Client
 from fastmcp.client.transports import SSETransport
 from llm_client import LLMClient
 
+# Import tool call to LTL translator
+from translator.utils import translate_tool_calls_to_LTL
+
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -425,6 +428,23 @@ Always verify object positions before manipulation."""
         self.logger.info(f"Processing {len(tool_calls)} tool call(s)")
 
         tool_results = []
+        
+        # TODO:
+        # 1. Implement tool call translator to LTL
+        # 2. Create reasoning prompt with structured json output
+        # 3. Import rules.yaml and implement rule checking in the reasoning step
+        # 4. Implement call to root of trust llm (different model than user prompt handler)
+        root_of_trust_llm = LLMClient(
+            api_choice="groq",
+            model="openai/gpt-oss-20b", # Budget version, replace with openai/gpt-oss-120b for increased security but also increased cost
+            temperature=0.0,
+            temperature=0.0,
+            max_tokens=4096,
+        )
+        toolcalls_ltl = translate_tool_calls_to_LTL(tool_calls)
+        
+        with open(rules_path := Path(__file__).parent.parent / "rules.yaml", "r") as f:
+        
 
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
