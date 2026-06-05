@@ -19,11 +19,16 @@ Data-/Privacy: LLM kann sensible Daten herausgeben je nach Zugriff und Filterung
 ---
 
 Wie zuverlässig können LLM-basierte Klassifikatoren gefährliche oder unzulässige Anweisungen erkennen – auch in verschleierter Form?
-Schwierig zu beantworten. LLMs sind im allgemeinen sehr anfällig für verschiedene Angriffe. Kodierung des Prompts (base64, Caesar-Schiffre, Leet-Speak), Jailbreaking, 
+Schwierig zu beantworten. LLMs sind im allgemeinen sehr anfällig für verschiedene Angriffe. Kodierung des Prompts (base64, Caesar-Schiffre, Leet-Speak), wenig gelernte Sprachen, Jailbreaking und Social Engineering sind gut dokumentierte Schwachstellen. Mit einer spezialisierten KI names "CHAI" wurden Angriffe auf verschiedene Cyber-Physische Systeme simuliert, mit großem Erfolg (Angriff, der Drohnen zum landen bringen soll: 68,1% Erfolg; Angriffe auf selbstfahrende Autos: 81,8% Erfolg; Drohne mit Angriff von Tracking abbringen: 95,5% Erfolg).
+
+Allerdings gibt es auch gegenmaßnahmen:
+### RoboGuard
+RoboGuard wurde entwickelt von Forschern der University of Pennsylvania und Carnegie Mellon UNiversity. Im wesentlichen funktioniert es so, dass man ein separates "Root-of-Trust-LLM" verwendet, also ein anderes Model, das niemals direkt mit dem Prompt des Nutzers in Kontakt kommt und somit nicht kompromittiert wird. Mit einer Regelliste und einer Zusammenfassung oder den extrahierten MCP-Toolbefehlen des User-Prompt, verwendet das Model Chain-of-Thought
+
 ---
 
 Wie ist ein policy-basiertes Regelwerk sinnvoll zu strukturieren, damit es von nicht-technischen Nutzern konfigurierbar ist?
-
+Human readable, einfach verständlich, übersichtlich strukturiert
 ---
 
 Welche Angriffsmuster auf Prompt-Injection-Ebene sind im Kontext physischer Robotersysteme besonders kritisch?
