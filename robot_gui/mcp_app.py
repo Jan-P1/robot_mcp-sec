@@ -29,6 +29,10 @@ import redis  # noqa: E402
 import torch  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
+from llm_client import LLMClient
+from ruamel.yaml import YAML
+
+
 # Check Gradio version for compatibility
 try:
     gr_version = gr.__version__
@@ -101,6 +105,94 @@ class RobotMCPGUI:
         print(f"  Simulation: {use_simulation}")
         print(f"  Redis: {redis_host}:{redis_port}")
         print("=" * 60 + "\n")
+        print("Translating rules to LTL...")
+
+        rules_path = Path(__file__).parent.parent / "rules.yaml"
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        with open(rules_path, "r") as f:
+            rules_file = yaml.safe_load(f)
+
+        llm_for_translation = LLMClient(api_choice="groq", model="openai/gpt-oss-20b", temperature=0.0, max_tokens=1024)
+        tool_names_list = [t.name for t in self.mcp_client.available_tools]
+            
+        for rule in rules_file["rules"]:
+            # Check if LTL already exists to avoid unnecessary translation (and cost)
+            if "ltl" in rule or rule["ltl"]:
+                print(f"Rule '{rule['name']}' already has LTL: {rule['ltl']}")
+                continue
+            # First pass translation
+            print(f"Translating rule: {rule['name']} - {rule['description']}")
+            ltl_translation = llm_for_translation.chat(f'''You are a formal specification assistant. Your task is to translate a plain-language safety rule into a Linear Temporal Logic (LTL) formula that will be used to verify sequences of tool calls made by an AI agent.
+
+            ## Available Atomic Propositions
+            These are the ONLY valid atomic propositions. Use ONLY these names, exactly as written:
+            {tool_names_list}
+
+            ## LTL Operators
+            Use ONLY these operators:
+            - G(φ)     — Globally: φ must hold at every point in the sequence
+            - F(φ)     — Finally: φ must hold at some future point
+            - X(φ)     — Next: φ must hold at the next step
+            - O(φ)     — Once: φ held at some point in the past (past operator)
+            - φ U ψ    — Until: φ holds until ψ becomes true
+            - !φ       — Not
+            - φ && ψ   — And
+            - φ || ψ   — Or
+            - φ -> ψ   — Implies (equivalent to !φ || ψ)
+
+            ## Rule to Translate
+            Name: {rule["name"]}
+            Description: {rule["description"]}
+
+            ## Instructions
+            Work through the following steps explicitly before writing the formula.
+
+            Step 1 — Identify the rule type:
+            Is this rule about (a) something that must NEVER happen, (b) something that must ALWAYS happen, (c) an ordering constraint between two tools, or (d) a conditional restriction? State which one.
+
+            Step 2 — Identify the relevant tools:
+            Which atomic propositions from the available list are referenced by this rule? If the rule mentions a concept (e.g. "delete") that maps to a specific tool name (e.g. "delete_file"), name the mapping explicitly. If no tool clearly maps to the concept, state that and pick the closest match.
+
+            Step 3 — Identify the temporal structure:
+            When does this rule apply — always (G), at some point (F), in sequence (->), or relative to past events (O)? Write one sentence describing the temporal structure in plain English before formalising it.
+
+            Step 4 — Write a candidate LTL formula:
+            Write the formula using ONLY the operators and propositions listed above.
+
+            Step 5 — Sanity check:
+            Read the formula aloud in English. Does it faithfully capture the original rule? If not, correct it and explain what was wrong.
+
+            Step 6 — Output:
+            Write the final formula on its own line, prefixed with:
+            FORMULA: <your formula here>
+            ''')
+            
+            if "double_pass" in rules_file and rules_file["double_pass"]:
+                ltl_translation = llm_for_translation.chat(f'''You are a formal methods assistant.
+
+                Original rule: "{rule["description"]}"
+
+                LTL formula produced: {ltl_translation}
+
+                Task:
+                1. Translate the LTL formula back into plain English, as precisely as possible.
+                2. Compare your plain-English translation to the original rule.
+                3. Answer: does the formula faithfully capture the original rule's intent?
+
+                Answer with one of:
+                - MATCH: <brief reason>
+                - MISMATCH: <what is different, and what the corrected formula should be>
+
+                If MISMATCH, write the corrected formula on its own line prefixed with:
+                FORMULA: <corrected formula>
+                ''')
+                
+            with open(rules_path, "w") as f:
+                yaml.dump(rules_file, f)
+                
+            
+            
 
         # Initialize MCP client
         self.mcp_client: Optional[RobotUniversalMCPClient] = None
