@@ -1,9 +1,16 @@
 # Safety Rules - RoboGuard
 # enabled: boolean - Whether the safety rules are enabled or not.
-# rules: list - A list of safety rules to be applied. Each rule should have the
+# double_passP: boolean - Whether to do two passes for the translation step to ltl. Increases safety, more then doubles cost though.
+# rules: list - A list of safety rules to be applied. Each rule has the following structure:
+#   name: string - A unique name for the rule.
+#   description: string - A detailed description of the rule and its purpose.
+#   ltl: string - The Linear Temporal Logic (LTL) formula representing the rule !WILL BE GENERATED ON START-UP!
 # Might add profiles (i.e. low, medium, high) for easier config
+
+double_pass: true
 
 rules:
   - name: "Bewegung außerhalb des Arbeitsbereichs"
     description: "Verhindere jeden Befehl, der den Arm aus dem Arbeitsbereich hinaus bewegen will."
     enabled: true
+    ltl: ""
