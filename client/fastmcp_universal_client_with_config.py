@@ -430,7 +430,7 @@ Always verify object positions before manipulation."""
         tool_results = []
         
         # TODO:
-        # 1. Implement tool call translator to LTL
+        # 1. Implement tool call translator to LTL - move to boot to pre-translate rules, add them to rules.yaml
         # 2. Create reasoning prompt with structured json output
         # 3. Import rules.yaml and implement rule checking in the reasoning step
         # 4. Implement call to root of trust llm (different model than user prompt handler)
@@ -443,7 +443,7 @@ Always verify object positions before manipulation."""
         )
         toolcalls_ltl = translate_tool_calls_to_LTL(tool_calls)
         
-        with open(rules_path := Path(__file__).parent.parent / "rules.yaml", "r") as f:
+       
         
 
         for tool_call in tool_calls:
