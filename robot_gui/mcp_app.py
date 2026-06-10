@@ -17,7 +17,6 @@ import sys
 import warnings
 from pathlib import Path
 from typing import Optional
-import yaml
 
 # Suppress annoying NumPy deprecation warnings from Gradio
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*np.bool8.*")
@@ -123,69 +122,140 @@ class RobotMCPGUI:
                 continue
             # First pass translation
             print(f"Translating rule: {rule['name']} - {rule['description']}")
-            ltl_translation = llm_for_translation.chat(f'''You are a formal specification assistant. Your task is to translate a plain-language safety rule into a Linear Temporal Logic (LTL) formula that will be used to verify sequences of tool calls made by an AI agent.
+            ltl_translation = llm_for_translation.chat(f'''
+                You are a formal specification assistant. Your task is to translate a
+                plain-language safety rule into a Linear Temporal Logic formula over
+                FINITE traces (LTLf). The formula will verify bounded sequences of tool
+                calls made by an AI agent, where each sequence has a definite end.
 
-            ## Available Atomic Propositions
-            These are the ONLY valid atomic propositions. Use ONLY these names, exactly as written:
-            {tool_names_list}
+                ## Finite Trace Semantics
+                - The trace is finite. Every formula is evaluated over a sequence with
+                a last state.
+                - G(φ) means φ holds at EVERY step including the last.
+                - F(φ) means φ holds at SOME step before or at the last — this is a
+                hard obligation; the trace is invalid if φ never occurs.
+                - X(φ) means φ holds at the NEXT step. It is FALSE at the last state
+                (no next step exists). Prefer (φ U ψ) over chains of X where possible.
+                - Xw(φ) is the weak next: true at the last state if no next step exists.
+                Use Xw instead of X when the next step may not exist.
+                - O(φ) means φ held at some point in the past up to the current step.
 
-            ## LTL Operators
-            Use ONLY these operators:
-            - G(φ)     — Globally: φ must hold at every point in the sequence
-            - F(φ)     — Finally: φ must hold at some future point
-            - X(φ)     — Next: φ must hold at the next step
-            - O(φ)     — Once: φ held at some point in the past (past operator)
-            - φ U ψ    — Until: φ holds until ψ becomes true
-            - !φ       — Not
-            - φ && ψ   — And
-            - φ || ψ   — Or
-            - φ -> ψ   — Implies (equivalent to !φ || ψ)
 
-            ## Rule to Translate
-            Name: {rule["name"]}
-            Description: {rule["description"]}
+                ## Available Atomic Propositions
+                These are the ONLY valid atomic propositions. Use ONLY these names,
+                exactly as written:
+                {tool_names_list}
 
-            ## Instructions
-            Work through the following steps explicitly before writing the formula.
 
-            Step 1 — Identify the rule type:
-            Is this rule about (a) something that must NEVER happen, (b) something that must ALWAYS happen, (c) an ordering constraint between two tools, or (d) a conditional restriction? State which one.
+                ## LTL Operators (in order of precedence, tightest first)
+                - !φ        — Not
+                - X(φ)      — Next (strict; false at last state)
+                - Xw(φ)     — Weak next (true at last state)
+                - G(φ)      — Globally
+                - F(φ)      — Finally (hard obligation in finite traces)
+                - O(φ)      — Once (past: φ held at some past step)
+                - φ U ψ     — Until: φ holds continuously until ψ becomes true
+                - φ && ψ    — And
+                - φ || ψ    — Or
+                - φ -> ψ    — Implies (equivalent to !φ || ψ)
 
-            Step 2 — Identify the relevant tools:
-            Which atomic propositions from the available list are referenced by this rule? If the rule mentions a concept (e.g. "delete") that maps to a specific tool name (e.g. "delete_file"), name the mapping explicitly. If no tool clearly maps to the concept, state that and pick the closest match.
 
-            Step 3 — Identify the temporal structure:
-            When does this rule apply — always (G), at some point (F), in sequence (->), or relative to past events (O)? Write one sentence describing the temporal structure in plain English before formalising it.
+                ## Rule to Translate
+                Name: {rule["name"]}
+                Description: {rule["description"]}
 
-            Step 4 — Write a candidate LTL formula:
-            Write the formula using ONLY the operators and propositions listed above.
 
-            Step 5 — Sanity check:
-            Read the formula aloud in English. Does it faithfully capture the original rule? If not, correct it and explain what was wrong.
+                ## Instructions
 
-            Step 6 — Output:
-            Write the final formula on its own line, prefixed with:
-            FORMULA: <your formula here>
+                Step 1 — Identify the rule type:
+                Is this (a) something that must NEVER happen, (b) something that must
+                ALWAYS happen, (c) an ordering constraint between two tools, or
+                (d) a conditional restriction? State which one.
+
+                Step 2 — Identify the relevant tools:
+                Which atomic propositions from the available list are referenced?
+                Explicitly name any mapping from natural language concepts to tool names.
+                If no tool clearly maps, state that and pick the closest match.
+
+                Step 3 — Identify the temporal structure:
+                Describe in one plain-English sentence when and how the rule applies.
+                Note whether it could involve the last step of the trace (which affects
+                whether to use X or Xw).
+
+                Step 4 — Write a candidate LTLf formula:
+                Use ONLY the operators and propositions listed above.
+                Avoid X(φ) unless you are certain a next state exists in all valid traces.
+
+                Step 5 — Sanity check:
+                a) Read the formula aloud in English.
+                b) Does it faithfully capture the original rule?
+                c) Does it use X anywhere the trace could end? If yes, replace with Xw.
+                d) Does it use F for something that should be optional? If yes, reconsider.
+                Correct and explain any issues found.
+
+                Step 6 — Output:
+                Write the final formula on its own line, prefixed with:
+                FORMULA: <your formula here>
             ''')
             
             if "double_pass" in rules_file and rules_file["double_pass"]:
-                ltl_translation = llm_for_translation.chat(f'''You are a formal methods assistant.
+                ltl_translation = llm_for_translation.chat(f'''
+                    You are a formal methods assistant specializing in LTLf — Linear
+                    Temporal Logic over FINITE traces. The formula below was generated to
+                    verify a bounded sequence of tool calls with a definite last state.
 
-                Original rule: "{rule["description"]}"
+                    ## Finite Trace Semantics Reminder
+                    - G(φ)  — φ holds at every step INCLUDING the last
+                    - F(φ)  — φ MUST occur before or at the last step (hard obligation)
+                    - X(φ)  — φ holds at the next step; FALSE at the last state
+                    - Xw(φ) — weak next; TRUE at the last state when no next step exists
+                    - O(φ)  — φ held at some past step up to now
+                    - U, &&, ||, ->, ! — standard semantics
 
-                LTL formula produced: {ltl_translation}
+                    ## Available Atomic Propositions
+                    {tool_names_list}
 
-                Task:
-                1. Translate the LTL formula back into plain English, as precisely as possible.
-                2. Compare your plain-English translation to the original rule.
-                3. Answer: does the formula faithfully capture the original rule's intent?
+                    ## Original Rule
+                    "{rule["description"]}"
 
-                Answer with one of:
-                - MATCH: <brief reason>
-                - MISMATCH: <what is different, and what the corrected formula should be>
+                    ## Formula to Verify
+                    {ltl_translation}
 
-                If MISMATCH, write the corrected formula on its own line prefixed with:
-                FORMULA: <corrected formula>
+                    ---
+
+                    ## Your Task — Follow these steps strictly in order:
+
+                    Step 1 — Proposition check:
+                    List every atomic proposition used in the formula. Flag any that are
+                    not in the Available Atomic Propositions list above.
+
+                    Step 2 — Operator safety check:
+                    Scan the formula for these known LTLf pitfalls:
+                    a) Does X(φ) appear anywhere the trace could be at its last state?
+                    If yes, flag it — should it be Xw(φ)?
+                    b) Does F(φ) appear for something that should be optional rather than
+                    required? If yes, flag it.
+                    c) Is G(φ) used where the rule only applies conditionally?
+                    If yes, flag it.
+
+                    Step 3 — Independent back-translation:
+                    Translate the formula into plain English as precisely as possible,
+                    operator by operator. Do NOT reference the original rule during this
+                    step. Treat this as a standalone translation exercise.
+
+                    Step 4 — Comparison:
+                    Compare your plain-English translation from Step 3 to the original rule.
+                    Identify any semantic differences, even subtle ones (e.g. stricter,
+                    weaker, wrong scope, wrong ordering).
+
+                    Step 5 — Verdict:
+                    Answer with exactly one of:
+                    - MATCH: <brief reason why the formula faithfully captures the rule>
+                    - MISMATCH: <specific sub-formula that is wrong> | <what it should
+                    capture instead> | <corrected formula>
+
+                    If MISMATCH, write the corrected formula on its own line prefixed with:
+                    FORMULA: <corrected formula>
                 ''')
                 
             with open(rules_path, "w") as f:
