@@ -28,6 +28,9 @@ from fastmcp import Client
 from fastmcp.client.transports import SSETransport
 from llm_client import LLMClient
 
+from ruamel.yaml import YAML
+
+
 # Import tool call to LTL translator
 from translator.utils import translate_tool_calls_to_LTL
 
@@ -430,19 +433,98 @@ Always verify object positions before manipulation."""
         tool_results = []
         
         # TODO:
-        # 1. Implement tool call translator to LTL - move to boot to pre-translate rules, add them to rules.yaml
-        # 2. Create reasoning prompt with structured json output
-        # 3. Import rules.yaml and implement rule checking in the reasoning step
-        # 4. Implement call to root of trust llm (different model than user prompt handler)
+        # 0. Implement tool call translator to LTL - moved to boot to pre-translate rules, add them to rules.yaml
+        # 1. Create reasoning prompt with structured json output
+        # 2. Import rules.yaml and implement rule checking in the reasoning step
+        # 3. Implement call to root of trust llm (different model than user prompt handler)
         root_of_trust_llm = LLMClient(
             api_choice="groq",
             model="openai/gpt-oss-20b", # Budget version, replace with openai/gpt-oss-120b for increased security but also increased cost
             temperature=0.0,
             temperature=0.0,
-            max_tokens=4096,
+            max_tokens=2048,
         )
         toolcalls_ltl = translate_tool_calls_to_LTL(tool_calls)
+        yaml = YAML()
+        rules_path = Path(__file__).parent.parent / "rules.yaml"
+        with open("rules.yaml", "r") as f:
+            rules_file = yaml.safe_load(f)
         
+        rules = [(i + 1, rule["ltl"]) for i, rule in enumerate(rules_file["rules"]) if rule["enabled"]]
+        
+        use_batch_prompt = len(rules) < 10 # If too many rules or too elaborate rules, switch to iterative check instead for stability (i.e. set to 0)
+        
+                    
+        batch_prompt = f"""
+            ## Context
+            You are a formal LTLf verification assistant. All reasoning uses
+            finite-trace semantics: traces have a definite last state.
+            - G(φ): φ holds at every step including the last
+            - F(φ): hard obligation — φ must occur before the trace ends
+            - X(φ): false at the last state; use Xw(φ) if next step may not exist
+            - ¬G → F¬, ¬F → G¬, ¬(φUψ) → (¬ψ W ¬φ)  [negation dualities]
+
+            ## Candidate Formula
+            φ = {toolcalls_ltl}
+
+            ## Constraint Rules
+            {chr(10).join(f"  ρ{i+1}: {rule}" for i, rule in enumerate(rules))}
+
+            ## Task
+            For each rule ρᵢ, determine if φ violates it by checking whether
+            φ ∧ ¬ρᵢ is satisfiable over some finite trace.
+
+            ### Per-Rule Evaluation
+            For EACH rule, work through:
+            1. Negate ρᵢ by pushing negation inward using LTLf dualities.
+            2. Reason step by step: can φ ∧ ¬ρᵢ be jointly satisfied?
+            3. State verdict: COMPLIANT or VIOLATION with minimal witness trace
+            as [{{props at s0}}, {{props at s1}}, ...].
+
+            ### Cross-Rule Analysis (batch-only)
+            After evaluating all rules individually:
+            a) Identify any rules that are redundant (one implies another).
+            b) Identify any rules that conflict with each other (ρᵢ ∧ ρⱼ is
+            unsatisfiable), making full compliance structurally impossible.
+            c) Identify any rules that jointly over-constrain φ even if no single
+            rule alone causes a violation.
+
+            ### Final Summary
+            Produce a verdict table:
+
+            | Rule | Verdict | Witness trace (if violation) |
+            |------|---------|------------------------------|
+            | ρ1   | ...     | ...                          |
+            | ...  | ...     | ...                          |
+
+            Then state the overall verdict:
+            - FULLY COMPLIANT
+            - VIOLATED: [list of violated rule indices]
+            - STRUCTURALLY IMPOSSIBLE: [rules that conflict with each other]
+        """
+
+        iterative_prompt = f"""
+            ## Context
+            Finite-trace LTLf semantics. The trace has a definite last state.
+            G(φ) holds through the last step. X(φ) is false at the last step.
+            F(φ) is a hard obligation — φ must occur before the trace ends.
+
+            ## Candidate Formula
+            φ = {toolcalls_ltl}
+
+            ## Constraint Rule
+            ρ = {rule}
+
+            ## Task
+            Is φ ∧ ¬ρ satisfiable over some finite trace?
+
+            1. Negate ρ correctly by pushing negation inward (apply De Morgan /
+            LTLf dualities: ¬G→F¬, ¬F→G¬, ¬(φUψ)→(¬ψ W ¬φ), etc.).
+            2. Reason step by step whether φ ∧ ¬ρ can be jointly satisfied.
+            3. Verdict on its own line:
+            COMPLIANT | VIOLATION: [s0, s1, ..., sn]
+            where each sᵢ is the set of true propositions at that step.
+        """
        
         
 
