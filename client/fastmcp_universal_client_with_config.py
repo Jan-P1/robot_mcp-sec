@@ -29,6 +29,7 @@ from fastmcp.client.transports import SSETransport
 from llm_client import LLMClient
 
 from ruamel.yaml import YAML
+from langdetect import detect
 
 
 # Import tool call to LTL translator
@@ -447,12 +448,15 @@ Always verify object positions before manipulation."""
         toolcalls_ltl = translate_tool_calls_to_LTL(tool_calls)
         yaml = YAML()
         rules_path = Path(__file__).parent.parent / "rules.yaml"
-        with open("rules.yaml", "r") as f:
+        with open(rules_path, "r") as f:
             rules_file = yaml.safe_load(f)
+            
+        subdigits = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
         
-        rules = [(i + 1, rule["ltl"]) for i, rule in enumerate(rules_file["rules"]) if rule["enabled"]]
+        rules = [(f"p{i + 1}: ".translate(subdigits) + rule["ltl"]) for i, rule in enumerate(rules_file["rules"]) if rule["enabled"]]
         
         use_batch_prompt = len(rules) < 10 # If too many rules or too elaborate rules, switch to iterative check instead for stability (i.e. set to 0)
+        # Todo: Move max length for batch prompt into config
         
                     
         batch_prompt = f"""
@@ -468,7 +472,7 @@ Always verify object positions before manipulation."""
             φ = {toolcalls_ltl}
 
             ## Constraint Rules
-            {chr(10).join(f"  ρ{i+1}: {rule}" for i, rule in enumerate(rules))}
+            {chr(10).join(f"\n{rule}" for i, rule in rules)}
 
             ## Task
             For each rule ρᵢ, determine if φ violates it by checking whether
@@ -502,31 +506,46 @@ Always verify object positions before manipulation."""
             - VIOLATED: [list of violated rule indices]
             - STRUCTURALLY IMPOSSIBLE: [rules that conflict with each other]
         """
+        response = ""
+        if use_batch_prompt:
+            response = root_of_trust_llm.chat_completion([{"role": "system", "content": batch_prompt}])
+        else:
+            for rule in rules:
+                iterative_prompt = f"""
+                    ## Context
+                    Finite-trace LTLf semantics. The trace has a definite last state.
+                    G(φ) holds through the last step. X(φ) is false at the last step.
+                    F(φ) is a hard obligation — φ must occur before the trace ends.
+                    Keep in mind there are {len(rules)} rules total (especially for X(φ) and F(φ)), but we will check them one at a time for stability.
 
-        iterative_prompt = f"""
-            ## Context
-            Finite-trace LTLf semantics. The trace has a definite last state.
-            G(φ) holds through the last step. X(φ) is false at the last step.
-            F(φ) is a hard obligation — φ must occur before the trace ends.
+                    ## Candidate Formula
+                    φ = {toolcalls_ltl}
 
-            ## Candidate Formula
-            φ = {toolcalls_ltl}
+                    ## Constraint Rule
+                    {rule}
 
-            ## Constraint Rule
-            ρ = {rule}
+                    ## Task
+                    Is φ ∧ ¬ρ satisfiable over some finite trace?
 
-            ## Task
-            Is φ ∧ ¬ρ satisfiable over some finite trace?
+                    1. Negate ρ correctly by pushing negation inward (apply De Morgan /
+                    LTLf dualities: ¬G→F¬, ¬F→G¬, ¬(φUψ)→(¬ψ W ¬φ), etc.).
+                    2. Reason step by step whether φ ∧ ¬ρ can be jointly satisfied.
+                    3. Verdict on its own line:
+                    FULLY COMPLIANT | VIOLATED: [s0, s1, ..., sn]
+                    where each sᵢ is the set of true propositions at that step.
+                """
+                reply = root_of_trust_llm.chat_completion([{"role": "system", "content": iterative_prompt}])
+                if not response:
+                    response = reply
+                if response == "FULLY COMPLIANT" and reply != "FULLY COMPLIANT":
+                    response = reply
+                if response != "FULLY COMPLIANT" and reply != "FULLY COMPLIANT":
+                    response += f"\n{reply}"
+                if reply == "FULLY COMPLIANT":
+                    continue
+            
+            
 
-            1. Negate ρ correctly by pushing negation inward (apply De Morgan /
-            LTLf dualities: ¬G→F¬, ¬F→G¬, ¬(φUψ)→(¬ψ W ¬φ), etc.).
-            2. Reason step by step whether φ ∧ ¬ρ can be jointly satisfied.
-            3. Verdict on its own line:
-            COMPLIANT | VIOLATION: [s0, s1, ..., sn]
-            where each sᵢ is the set of true propositions at that step.
-        """
-       
-        
 
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
@@ -639,9 +658,16 @@ Always verify object positions before manipulation."""
         # Publish user task to Redis for video overlay
         await self._call_set_user_task_tool(user_message)
 
+        #ToDo: Sanatize and prevent execution of harmful content in user_message before adding to history or publishing to Redis
+        detected_language = detect(user_message)
+        if detected_language != "en" and detected_language != "de":
+            error_msg = f"Unsupported language detected: {detected_language}. Only English and German are supported."
+            return error_msg
+        
+        #ToDo: If somehow passed, check for most common circumventions, i.e. l33t, base64, hex
+        
         # Add user message to history
         self.conversation_history.append({"role": "user", "content": user_message})
-
         max_iterations = self.config.llm.max_iterations
         iteration = 0
         planning_phase_complete = False
